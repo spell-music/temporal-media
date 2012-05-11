@@ -34,6 +34,7 @@ module Temporal.Media(
     -- | This package heavily relies on 'Monoid's, so there are shorcuts
     -- for 'Monoid' methods.
     nil,
+    module Data.Monoid,
     -- * Types
     Event(..),
     Track,
