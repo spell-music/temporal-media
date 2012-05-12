@@ -1,15 +1,11 @@
 {-# Language 
-        TypeFamilies, 
-        FlexibleContexts, 
         BangPatterns #-}
 
--- | An embedded domain-specific language (EDSL) for creating 
--- lists of constant time events related in time.
+-- | A library for creating lists of constant time events related in time.
 module Temporal.Media(
     -- * Introduction
 
-    -- | "Temporal.Media" is an embedded domain-specific 
-    -- language (EDSL) for creating lists of constant time 
+    -- | "Temporal.Media" is a library for creating lists of constant time 
     -- events related in time. Constant time event is value
     -- that starts at some fixed time and lasts for some 
     -- fixed time. Library provides functions to build lists
@@ -24,25 +20,25 @@ module Temporal.Media(
     --
     -- \[1\] <http://hackage.haskell.org/package/temporal-music-notation>
     
-    -- * Classes
-    Time(..), Temporal(..), Media(..), Clippable(..),
+    -- * Types
+    Time(..), Event(..), Track, dur, within,
+    -- * Composition
+    temp, stretch, delay, clip, 
     (+|), (*|), (=:=), (+:+), (=:/),
     line, chord, chordT, loop, rest,
+    filterE, sustain, sustainT,    
      
-    -- * Monoid synonyms
-    --
-    -- | This package heavily relies on 'Monoid's, so there are shorcuts
-    -- for 'Monoid' methods.
-    nil,
-    module Data.Monoid,
-    -- * Types
-    Event(..),
-    Track,
-    filterE, sustain, sustainT, temp,   
     -- * Mappings
     mapE, tmap, tmapRel,
     -- * Rendering
-    render, alignByZero
+    render, alignByZero,
+    
+    -- * Monoid synonyms
+    --
+    -- | This package heavily relies on 'Monoid's, so there are shorcuts
+    -- for 'Monoid' methods.    
+    nil,
+    module Data.Monoid
 )
     where
 
@@ -57,8 +53,8 @@ import Data.Ratio
 -- TODO : optimise loops
 -- reflect ??? 
 
--- | Class 'Time' is an synonym for intersection of
--- 'Num' and 'Ord' clases. It contains no methods.
+-- | Class 'Time' is a synonym for intersection of
+-- 'Num' and 'Ord' classes. It contains no methods.
 class (Num t, Ord t) => Time t 
 
 instance Time Int
@@ -67,107 +63,11 @@ instance Time Float
 instance Time Double
 instance Integral a => Time (Ratio a)
 
-
 -- Monoid shortcuts
 
 -- | Synonym for method 'mempty'.
 nil :: Monoid a => a 
 nil = mempty
-
--- Classes
-
--- | Class for temporal values. Temporal values happens
--- in some time and lasts for some time. They can be 
--- delayed in time domain (start time is shifted), and 
--- stretched (duration is multiplied by some factor).
---
--- Properties:
---
--- > dur (delay t a) = t + dur a
--- > dur (stretch t a) = t * dur a
---
--- > delay a . delay b = delay (a + b)
--- > delay a . delay b = delay b . delay a
--- > stretch a . stretch b = stretch (a * b)
--- > stretch a . stretch b = stretch b . stretch a
-class Temporal t where
-    type Dur t :: *
-    -- | Duration of the value
-    dur     :: t -> Dur t           
-    -- | Delaying values in time domain
-    delay   :: Dur t -> t -> t  
-    -- | Stretching values in time domain
-    stretch :: Dur t -> t -> t  
-
--- | Infix 'delay' function.
-(+|) :: Temporal t => Dur t -> t -> t
-(+|) = delay
-
--- | Infix 'stretch' function.
-(*|) :: Temporal t => Dur t -> t -> t
-(*|) = stretch
-
--- | 'Clippable' values can be divided in parts. 
--- 
--- properties:
---
--- > dur (clip a b val) = b - a
-class Temporal t => Clippable t where
-    -- | @clip a b val@ is a part of value that starts on @a@ 
-    -- and ends on @b@.
-    clip :: Dur t -> Dur t -> t -> t
-
-  
--- | 'Media' is something that can be transformed in time domain
--- and can be played in parallel ('Monoid' method '<>'). 
---
--- properties:
---
--- > dur nil = 0
--- > dur (a <> b) = dur a `max` dur b
-class (Monoid t, Temporal t) => Media t
-
--- | Parallel composition. Play two medias
--- simultaneously.
-(=:=) :: Media t => t -> t -> t
-a =:= b = a <> b 
-
--- | Sequent composition. Play first media then
--- second.
-(+:+) :: Media t => t -> t -> t
-a +:+ b = a <> delay (dur a) b
-
--- | Turncating parallel composition. Total duration
--- equals to minimum of the two medias. All events
--- that goes beyond the lmimt are dropped.
-(=:/) :: (Time (Dur t), Media t, Clippable t) => t -> t -> t
-a =:/ b = clip 0 (dur a `min` dur b) $ a <> b
-
--- | Parallel composition on list of medias.
-chord :: Media t => [t] -> t
-chord = mconcat
-
-
--- | Sequent composition on list of medias.
-line :: Media t => [t] -> t
-line = foldr (+:+) nil
-
--- | Turncating parallel composition on list of medias.
-chordT :: (Time (Dur t), Clippable t, Media t) => [t] -> t
-chordT xs = clip 0 (minimum $ dur <$> xs) $ chord xs
-
--- | Analog of 'replicate' function for medias. Replicated
--- medias are played sequentially.
-loop :: Media t => Int -> t -> t
-loop n = line . replicate n
-
--- | Reversing the media
-reflect :: (Num (Dur t), Temporal t) => t -> t
-reflect a = delay (dur a) $ stretch (-1) a
-
--- | Empty media that lasts for some time.
-rest :: Media t => Dur t -> t
-rest = flip delay nil
 
 ----------------------------------------------
 -- Track
@@ -187,31 +87,86 @@ instance (Time t) => Monoid (Track t a) where
     mappend (Track d es) (Track d' es') = 
         Track (max d d') $ mappend es es'
 
-instance Time t => Temporal (Track t a) where
-    type Dur (Track t a) = t
-    
-    dur (Track d _) = d
-    stretch k (Track d es) = Track (k*d) $ stretch k es
-    delay   k (Track d es) = Track (k+d) $ delay   k es
+-- | Calculates track's duration.
+dur :: Time t => Track t a -> t
+dur (Track d _) = d
 
-instance Time t => Media (Track t a)
+-- | Stretches track in time domain.
+stretch :: Time t => t -> Track t a -> Track t a
+stretch k (Track d es) = Track (k*d) $ stretchTList k es
+
+-- | Delays all events by given duration. 
+delay :: Time t => t -> Track t a -> Track t a
+delay k (Track d es) = Track (k+d) $ delayTList k es
+
+-- | Infix 'delay' function.
+(+|) :: Time t => t -> Track t a -> Track t a 
+(+|) = delay
+
+-- | Infix 'stretch' function.
+(*|) :: Time t => t -> Track t a -> Track t a
+(*|) = stretch
+
+-- | Parallel composition. Play two tracks simultaneously.
+(=:=) :: Time t => Track t a -> Track t a -> Track t a
+a =:= b = a <> b 
+
+-- | Sequent composition. Play first track then second.
+(+:+) :: Time t => Track t a -> Track t a -> Track t a
+a +:+ b = a <> delay (dur a) b
+
+-- | Turncating parallel composition. Total duration
+-- equals to minimum of the two tracks. All events
+-- that goes beyond the lmimt are dropped.
+(=:/) :: Time t => Track t a -> Track t a -> Track t a
+a =:/ b = clip 0 (dur a `min` dur b) $ a <> b
+
+-- | Parallel composition on list of tracks.
+chord :: Time t => [Track t a] -> Track t a
+chord = mconcat
+
+-- | Sequent composition on list of tracks.
+line :: Time t => [Track t a] -> Track t a
+line = foldr (+:+) nil
+
+-- | Turncating parallel composition on list of tracks.
+chordT :: Time t => [Track t a] -> Track t a
+chordT xs = clip 0 (minimum $ dur <$> xs) $ chord xs
+
+-- | Analog of 'replicate' function for tracks. Replicated
+-- tracks are played sequentially.
+loop :: Time t => Int -> Track t a -> Track t a
+loop n = line . replicate n
+
+-- | Reversing the tracks
+reflect :: Time t => Track t a -> Track t a
+reflect a = delay (dur a) $ stretch (-1) a
+
+-- | Empty track that lasts for some time.
+rest :: Time t => t -> Track t a
+rest = flip delay nil
+
 
 instance Foldable (Track t) where
     foldMap f (Track _ x) = foldMap f x        
-   
-instance Time t => Clippable (Track t a) where
-    clip t0 t1 = clipDur . delay (-t0) . filterE (within t0 t1)
-        where clipDur (Track _ a) = Track (t1 - t0) a
 
+-- | 'clip' cuts piece of value within given time interval.
+-- for @('clip' t0 t1 m)@, if @t1 < t0@ result is reversed.
+-- If @t0@ is negative or @t1@ goes beyond @'dur' m@ blocks of
+-- nothing inserted so that duration of result equals to 
+-- @'abs' (t0 - t1)@.
+clip :: Time t => t -> t -> Track t a -> Track t a
+clip t0 t1 = clipDur . delay (-t0) . filterE (within t0 t1)
+    where clipDur (Track _ a) = Track (t1 - t0) a
 
+-- | 'temp' constructs just an event. 
+-- Value of type a lasts for some time.
 temp :: (Num t, Ord t) => a -> Track t a
 temp = Track 1 . Single
-
 
 -- | Get all events on recordered on the track. 
 render :: Num t => Track t a -> [Event t a]
 render (Track d es) = renderTList es
-
 
 -----------------------------------------------
 -- Event
@@ -227,13 +182,12 @@ data Event t a = Event {
 instance Functor (Event t) where
     fmap f e = e{ eventContent = f (eventContent e) }
 
-instance Num t => Temporal (Event t a) where
-    type Dur (Event t a) = t
-    dur = eventDur
-    delay   d e = e{ eventStart = eventStart e + d }
-    stretch d e = e{ eventStart = eventStart e * d,
-                     eventDur   = eventDur   e * d }
+durEvent = eventDur
+delayEvent d e = e{ eventStart = eventStart e + d }
+stretchEvent d e = e{ eventStart = eventStart e * d,
+                      eventDur   = eventDur   e * d }
 
+-- | Tests if given 'Event' happens between two time stamps.
 within :: Time t => t -> t -> Event t a -> Bool
 within t0 t1 (Event s d _) = within' t0 t1 s && within' t0 t1 (s + d)
     where within' a b x = x <= a && x >= b
@@ -252,9 +206,10 @@ tmap :: Fractional t
     => (Event t a -> b) -> Track t a -> Track t b
 tmap f = mapE $ \e@(Event s d _) -> Event s d (f e)
 
+-- | Relative tmap. Time values are normalized by argument's duration. 
 tmapRel :: (Fractional t, Time t) 
     => (Event t a -> b) -> Track t a -> Track t b
-tmapRel f x = tmap (f . stretch (1 / dur x)) x
+tmapRel f x = tmap (f . stretchEvent (1 / dur x)) x
 
 
 -- | After this transformation events last longer
@@ -278,7 +233,9 @@ alignByZero es = alignEvent <$> es
     where minT = minimum $ eventStart <$> es
           alignEvent e = e{ eventStart = eventStart e - minT } 
 
-      
+
+
+-----------------------------------------------
 -----------------------------------------------
 -- Temporal List
 
@@ -310,21 +267,18 @@ instance Functor (TList t) where
     fmap f = foldT Empty (Single . f) Append TFun
 
 
-instance (Num t, Ord t) => Temporal (TList t a) where
-    type Dur (TList t a) = t
-    dur = maximum . fmap totalEventDur . renderTList 
-        where totalEventDur = (+) <$> eventStart <*> eventDur
+durTList = maximum . fmap totalEventDur . renderTList 
+    where totalEventDur = (+) <$> eventStart <*> eventDur
 
-    stretch k x = case x of
-        TFun t a   -> TFun (stretch k t) a
+stretchTList k x = case x of
+        TFun t a   -> TFun (stretchTfm k t) a
         Empty      -> Empty
         a          -> TFun (Tfm k 0) a
 
-    delay k x = case x of
-        TFun t a    -> TFun (delay k t) a
+delayTList k x = case x of
+        TFun t a    -> TFun (delayTfm k t) a
         Empty       -> Empty
         a           -> TFun (Tfm 1 k) a 
-
 
 instance Foldable (TList t) where
     foldMap f = foldT mempty f mappend (flip const)
@@ -362,7 +316,8 @@ filterTList p = (filterEvent =<< ) . eventList
                     else Empty
 
 nfTList :: (Num t, Ord t) => TList t a -> TList t a
-nfTList = foldT Empty Single mappend (\(Tfm s d) -> delay d . stretch s)
+nfTList = foldT Empty Single mappend 
+    (\(Tfm s d) -> delayTList d . stretchTList s)
 
 -- transformation 
 -- it's a pair of (stretch factor, delay offset)
@@ -372,11 +327,9 @@ data Tfm t = Tfm !t !t
 unit :: Num t => Tfm t
 unit = Tfm 1 0
 
-instance Num t => Temporal (Tfm t) where
-    type Dur (Tfm t) = t
-    dur (Tfm str del) = str + del
-    stretch k (Tfm str del) = Tfm (k*str)  (k*del)
-    delay   k (Tfm str del) = Tfm str      (k+del) 
+durTfm (Tfm str del) = str + del
+stretchTfm k (Tfm str del) = Tfm (k*str)  (k*del)
+delayTfm   k (Tfm str del) = Tfm str      (k+del) 
 
 
 eventFromTfm :: Tfm t -> a -> Event t a
