@@ -53,6 +53,7 @@ class (Ord t, Num t) => Time t where
 instance Time Int
 instance Time Integer
 instance Time Float
+instance Time Double
 instance Integral a => Time (Ratio a)
 
 -- TODO : optimise loops
