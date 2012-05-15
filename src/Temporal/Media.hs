@@ -16,15 +16,15 @@ module Temporal.Media(
     -- to compose list of events. 
     
     -- * Types
-    Time(..), Event(..), Track, dur, within, eventEnd,
+    Event(..), Track, dur, within, eventEnd,
     -- * Composition
     temp, stretch, delay, reflect, (+|), (*|), (=:=), (+:+), (=:/),
     line, chord, chordT, loop, rest, sustain, sustainT,    
     
     -- * Filtering
-    clip, takeT, dropT, filterE,     
+    clip, takeT, dropT, filterEvents,     
     -- * Mappings
-    mapE, tmap, tmapRel,
+    mapEvents, tmap, tmapRel,
     -- * Rendering
     render, alignByZero, sortEvents,
     
@@ -42,19 +42,10 @@ module Temporal.Media(
 import Data.Monoid
 import Data.Foldable(Foldable(foldMap))
 
-import Data.Ratio(Ratio)
 import Control.Applicative
 
 import Data.List(sortBy)
 import Data.Ord(comparing)
-
-class (Ord t, Num t) => Time t where
-
-instance Time Int
-instance Time Integer
-instance Time Float
-instance Time Double
-instance Integral a => Time (Ratio a)
 
 -- TODO : optimise loops
 -- reflect ??? 
@@ -70,7 +61,7 @@ nil = mempty
 
 -- | 'Track' is a set of 'Event' s. There is total duration
 -- of the track, but Events can go beyond the scope of total duration
--- (as a result of 'mapE' function). Total duration is used in sequent 
+-- (as a result of 'mapEvents' function). Total duration is used in sequent 
 -- composition of tracks. 
 data Track t a = Track t (TList t a)
     deriving (Show, Eq)
@@ -78,7 +69,7 @@ data Track t a = Track t (TList t a)
 instance Functor (Track t) where
     fmap f (Track d es) = Track d $ fmap f es
 
-instance Time t => Monoid (Track t a) where
+instance Real t => Monoid (Track t a) where
     mempty = Track 0 mempty
     mappend (Track d es) (Track d' es') = 
         Track (max d d') $ mappend es es'
@@ -88,60 +79,61 @@ dur :: Track t a -> t
 dur (Track d _) = d
 
 -- | Stretches track in time domain.
-stretch :: Time t => t -> Track t a -> Track t a
+stretch :: Real t => t -> Track t a -> Track t a
 stretch k (Track d es) = Track (k*d) $ stretchTList k es
 
 -- | Delays all events by given duration. 
-delay :: Time t => t -> Track t a -> Track t a
+delay :: Real t => t -> Track t a -> Track t a
 delay k (Track d es) = Track (k+d) $ delayTList k es
 
 -- | Infix 'delay' function.
-(+|) :: Time t => t -> Track t a -> Track t a 
+(+|) :: Real t => t -> Track t a -> Track t a 
 (+|) = delay
 
 -- | Infix 'stretch' function.
-(*|) :: Time t => t -> Track t a -> Track t a
+(*|) :: Real t => t -> Track t a -> Track t a
 (*|) = stretch
 
 -- | Parallel composition. Play two tracks simultaneously.
-(=:=) :: (Time t) => Track t a -> Track t a -> Track t a
+(=:=) :: (Real t) => Track t a -> Track t a -> Track t a
 a =:= b = a <> b 
 
 -- | Sequent composition. Play first track then second.
-(+:+) :: (Time t) => Track t a -> Track t a -> Track t a
+(+:+) :: (Real t) => Track t a -> Track t a -> Track t a
 a +:+ b = a <> delay (dur a) b
 
 -- | Turncating parallel composition. Total duration
 -- equals to minimum of the two tracks. All events
 -- that goes beyond the lmimt are dropped.
-(=:/) :: (Time t) => Track t a -> Track t a -> Track t a
+(=:/) :: (Real t) => Track t a -> Track t a -> Track t a
 a =:/ b = clip 0 (dur a `min` dur b) $ a <> b
 
 -- | Parallel composition on list of tracks.
-chord :: (Time t, Ord t) => [Track t a] -> Track t a
+chord :: (Real t, Ord t) => [Track t a] -> Track t a
 chord = mconcat
 
 -- | Sequent composition on list of tracks.
-line :: (Time t) => [Track t a] -> Track t a
+line :: (Real t) => [Track t a] -> Track t a
 line = foldr (+:+) nil
 
 -- | Turncating parallel composition on list of tracks.
-chordT :: (Time t) => [Track t a] -> Track t a
+chordT :: (Real t) => [Track t a] -> Track t a
 chordT xs = clip 0 (minimum $ dur <$> xs) $ chord xs
 
 -- | Analog of 'replicate' function for tracks. Replicated
 -- tracks are played sequentially.
-loop :: (Time t) => Int -> Track t a -> Track t a
+loop :: (Real t) => Int -> Track t a -> Track t a
 loop n = line . replicate n
 
 -- | Reversing the tracks
-reflect :: (Time t) => Track t a -> Track t a
-reflect a = mapE (\e -> e{ eventStart = d - (eventStart e + eventDur e) }) a
+reflect :: (Real t) => Track t a -> Track t a
+reflect a = mapEvents 
+    (\e -> e{ eventStart = d - (eventStart e + eventDur e) }) a
     where d = dur a
 
 
 -- | Empty track that lasts for some time.
-rest :: (Time t) => t -> Track t a
+rest :: (Real t) => t -> Track t a
 rest = flip delay nil
 
 
@@ -153,30 +145,30 @@ instance Foldable (Track t) where
 -- If @t0@ is negative or @t1@ goes beyond @'dur' m@ blocks of
 -- nothing inserted so that duration of result equals to 
 -- @'abs' (t0 - t1)@.
-clip :: (Time t) => t -> t -> Track t a -> Track t a
+clip :: (Real t) => t -> t -> Track t a -> Track t a
 clip t0 t1 
     | t0 < t1   = clip' t0 t1
     | otherwise = reflect . clip' t1 t0
 
-clip' :: (Time t) => t -> t -> Track t a -> Track t a
-clip' t0 t1 = clipDur . delay (-t0) . filterE (within t0 t1)
+clip' :: (Real t) => t -> t -> Track t a -> Track t a
+clip' t0 t1 = clipDur . delay (-t0) . filterEevents (within t0 t1)
     where clipDur (Track _ a) = Track (t1 - t0) a
 
 -- | @('takeT' t)@ is equivalent to @('clip' 0 t)@.
-takeT :: (Time t) => t -> Track t a -> Track t a
+takeT :: (Real t) => t -> Track t a -> Track t a
 takeT t1 = clip 0 t1
 
 -- | @('dropT' t m)@ is equivalent to @('clip' t (dur a) a)@.
-dropT :: (Time t, Ord t) => t -> Track t a -> Track t a
+dropT :: Real t => t -> Track t a -> Track t a
 dropT t0 a = clip t0 (dur a) a
 
 -- | 'temp' constructs just an event. 
 -- Value of type a lasts for one time unit and starts at zero.
-temp :: (Time t) => a -> Track t a
+temp :: (Real t) => a -> Track t a
 temp = Track 1 . Single
 
 -- | Get all events on recordered on the track. 
-render :: Time t => Track t a -> [Event t a]
+render :: Real t => Track t a -> [Event t a]
 render (Track d es) = renderTList es
 
 -----------------------------------------------
@@ -203,43 +195,43 @@ stretchEvent d e = e{ eventStart = eventStart e * d,
                       eventDur   = eventDur   e * d }
 
 -- | Tests if given 'Event' happens between two time stamps.
-within :: (Time t) => t -> t -> Event t a -> Bool
+within :: (Real t) => t -> t -> Event t a -> Bool
 within t0 t1 e = within' t0 t1 (eventStart e) && within' t0 t1 (eventEnd e)
     where within' a b x = x >= a && x <= b
 
 -- | General mapping. Mapps not only values but events. 
-mapE :: Time t => (Event t a -> Event t b) -> Track t a -> Track t b 
-mapE = onEvents . fmap
+mapEvents :: Real t => (Event t a -> Event t b) -> Track t a -> Track t b 
+mapEvents = onEvents . fmap
 
 -- | Filter track. 
-filterE :: Time t => (Event t a -> Bool) -> Track t a -> Track t a
-filterE = onEvents . filter
+filterEvents :: Real t => (Event t a -> Bool) -> Track t a -> Track t a
+filterEvents = onEvents . filter
 
 
-onEvents :: Time t => ([Event t a] -> [Event t b]) -> Track t a -> Track t b
+onEvents :: Real t => ([Event t a] -> [Event t b]) -> Track t a -> Track t b
 onEvents phi t@(Track d es) = Track d $ fromEventList $ phi $ render t
 
 
 -- | Mapps values and time stamps.
-tmap :: Time t => (Event t a -> b) -> Track t a -> Track t b
-tmap f = mapE $ \e -> e{ eventContent = f e }
+tmap :: Real t => (Event t a -> b) -> Track t a -> Track t b
+tmap f = mapEvents $ \e -> e{ eventContent = f e }
 
 -- | Relative tmap. Time values are normalized by argument's duration. 
-tmapRel :: (Time t, Fractional t) => (Event t a -> b) -> Track t a -> Track t b
+tmapRel :: (RealFrac t) => (Event t a -> b) -> Track t a -> Track t b
 tmapRel f x = tmap (f . stretchEvent (1 / dur x)) x
 
 
 -- | After this transformation events last longer
 -- by some constant amount of time.
-sustain :: Time t => t -> Track t a -> Track t a
-sustain a = mapE $ \e -> e{ eventDur = a + eventDur e }
+sustain :: Real t => t -> Track t a -> Track t a
+sustain a = mapEvents $ \e -> e{ eventDur = a + eventDur e }
 
 -- | Prolongated events can not exceed total track duration.
 -- All event are sustained but those that are close to 
 -- end of the track are clipped. It resembles sustain on piano,
 -- when track ends you release the pedal.
-sustainT :: (Time t) => t -> Track t a -> Track t a
-sustainT a x = mapE (\e -> turncate $ e{ eventDur = a + eventDur e }) x
+sustainT :: (Real t) => t -> Track t a -> Track t a
+sustainT a x = mapEvents (\e -> turncate $ e{ eventDur = a + eventDur e }) x
     where turncate e
             | eventEnd e > d    = e{ eventDur = max 0 $ d - eventStart e }
             | otherwise         = e
@@ -248,7 +240,7 @@ sustainT a x = mapE (\e -> turncate $ e{ eventDur = a + eventDur e }) x
 
 -- | Shifts all events so that minimal start time
 --  equals to zero if first event has negative start time.
-alignByZero :: (Time t) => [Event t a] -> [Event t a]
+alignByZero :: (Real t) => [Event t a] -> [Event t a]
 alignByZero es 
     | minT < 0  = alignEvent <$> es
     | otherwise = es
@@ -351,7 +343,7 @@ composeTfm (Tfm s2 d2) (Tfm s1 d1) = Tfm (s1*s2) (d1*s2 + d2)
 ---------------------------------------------------------------
 -- Misc
 
--- | Linear interpolation. Can be useful with 'mapE' for 
+-- | Linear interpolation. Can be useful with 'mapEvents' for 
 -- envelope changes.
 --
 -- > linseg [a, da, b, db, c, ... ]
