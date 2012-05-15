@@ -151,7 +151,7 @@ clip t0 t1
     | otherwise = reflect . clip' t1 t0
 
 clip' :: (Real t) => t -> t -> Track t a -> Track t a
-clip' t0 t1 = clipDur . delay (-t0) . filterEevents (within t0 t1)
+clip' t0 t1 = clipDur . delay (-t0) . filterEvents (within t0 t1)
     where clipDur (Track _ a) = Track (t1 - t0) a
 
 -- | @('takeT' t)@ is equivalent to @('clip' 0 t)@.
