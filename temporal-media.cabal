@@ -1,7 +1,7 @@
 Name:          temporal-media
 Version:       0.3.1
 License-file:  LICENSE
-Cabal-Version: >= 1.2
+Cabal-Version: >= 1.6
 License:       BSD3
 Author:	       Anton Kholomiov
 Maintainer:    <anton.kholomiov@gmail.com>
