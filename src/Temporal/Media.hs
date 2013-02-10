@@ -1,6 +1,8 @@
 {-# Language 
         BangPatterns #-}
 
+
+
 -- | A library for creating lists of constant time events related in time.
 module Temporal.Media(
     -- * Introduction
@@ -22,7 +24,7 @@ module Temporal.Media(
     line, chord, chordT, loop, rest, sustain, sustainT,    
     
     -- * Filtering
-    clip, takeT, dropT, filterEvents,     
+    slice, takeT, dropT, filterEvents,     
     -- * Mappings
     mapEvents, tmap, tmapRel,
     -- * Rendering
@@ -35,7 +37,7 @@ module Temporal.Media(
     nil,
     module Data.Monoid,
     -- * Miscellaneous
-    linseg, linsegRel
+    linfun, linfunRel
 
 ) where
 
@@ -106,7 +108,7 @@ a +:+ b = a <> delay (dur a) b
 -- equals to minimum of the two tracks. All events
 -- that goes beyond the lmimt are dropped.
 (=:/) :: (Real t) => Track t a -> Track t a -> Track t a
-a =:/ b = clip 0 (dur a `min` dur b) $ a <> b
+a =:/ b = slice 0 (dur a `min` dur b) $ a <> b
 
 -- | Parallel composition on list of tracks.
 chord :: (Real t, Ord t) => [Track t a] -> Track t a
@@ -118,7 +120,7 @@ line = foldr (+:+) nil
 
 -- | Turncating parallel composition on list of tracks.
 chordT :: (Real t) => [Track t a] -> Track t a
-chordT xs = clip 0 (minimum $ dur <$> xs) $ chord xs
+chordT xs = slice 0 (minimum $ dur <$> xs) $ chord xs
 
 -- | Analog of 'replicate' function for tracks. Replicated
 -- tracks are played sequentially.
@@ -140,27 +142,27 @@ rest = flip delay nil
 instance Foldable (Track t) where
     foldMap f (Track _ x) = foldMap f x        
 
--- | 'clip' cuts piece of value within given time interval.
--- for @('clip' t0 t1 m)@, if @t1 < t0@ result is reversed.
+-- | 'slice' cuts piece of value within given time interval.
+-- for @('slice' t0 t1 m)@, if @t1 < t0@ result is reversed.
 -- If @t0@ is negative or @t1@ goes beyond @'dur' m@ blocks of
 -- nothing inserted so that duration of result equals to 
 -- @'abs' (t0 - t1)@.
-clip :: (Real t) => t -> t -> Track t a -> Track t a
-clip t0 t1 
-    | t0 < t1   = clip' t0 t1
-    | otherwise = reflect . clip' t1 t0
+slice :: (Real t) => t -> t -> Track t a -> Track t a
+slice t0 t1 
+    | t0 < t1   = slice' t0 t1
+    | otherwise = reflect . slice' t1 t0
 
-clip' :: (Real t) => t -> t -> Track t a -> Track t a
-clip' t0 t1 = clipDur . delay (-t0) . filterEvents (within t0 t1)
-    where clipDur (Track _ a) = Track (t1 - t0) a
+slice' :: (Real t) => t -> t -> Track t a -> Track t a
+slice' t0 t1 = sliceDur . delay (-t0) . filterEvents (within t0 t1)
+    where sliceDur (Track _ a) = Track (t1 - t0) a
 
--- | @('takeT' t)@ is equivalent to @('clip' 0 t)@.
+-- | @('takeT' t)@ is equivalent to @('slice' 0 t)@.
 takeT :: (Real t) => t -> Track t a -> Track t a
-takeT t1 = clip 0 t1
+takeT t1 = slice 0 t1
 
--- | @('dropT' t m)@ is equivalent to @('clip' t (dur a) a)@.
+-- | @('dropT' t m)@ is equivalent to @('slice' t (dur a) a)@.
 dropT :: Real t => t -> Track t a -> Track t a
-dropT t0 a = clip t0 (dur a) a
+dropT t0 a = slice t0 (dur a) a
 
 -- | 'temp' constructs just an event. 
 -- Value of type a lasts for one time unit and starts at zero.
@@ -228,7 +230,7 @@ sustain a = mapEvents $ \e -> e{ eventDur = a + eventDur e }
 
 -- | Prolongated events can not exceed total track duration.
 -- All event are sustained but those that are close to 
--- end of the track are clipped. It resembles sustain on piano,
+-- end of the track are sliceped. It resembles sustain on piano,
 -- when track ends you release the pedal.
 sustainT :: (Real t) => t -> Track t a -> Track t a
 sustainT a x = mapEvents (\e -> turncate $ e{ eventDur = a + eventDur e }) x
@@ -346,35 +348,35 @@ composeTfm (Tfm s2 d2) (Tfm s1 d1) = Tfm (s1*s2) (d1*s2 + d2)
 -- | Linear interpolation. Can be useful with 'mapEvents' for 
 -- envelope changes.
 --
--- > linseg [a, da, b, db, c, ... ]
+-- > linfun [a, da, b, db, c, ... ]
 --
 -- @a, b, c ...@ - values
 --
 -- @da, db, ...@ - duration of segments
-linseg :: (Ord t, Fractional t) => [t] -> t -> t
-linseg xs t = 
+linfun :: (Ord t, Fractional t) => [t] -> t -> t
+linfun xs t = 
     case xs of
         (a:dur:b:[])      -> seg a dur b t
         (a:dur:b:(x:xs')) -> if t < dur 
                              then seg a dur b t
-                             else linseg (b:x:xs') (t - dur)
+                             else linfun (b:x:xs') (t - dur)
     where seg a dur b t 
                 | t < 0     = a
                 | t >= dur  = b
                 | otherwise = a + (b - a)*(t/dur)
 
 
--- | With 'linsegRel' you can make linear interpolation
+-- | With 'linfunRel' you can make linear interpolation
 -- function that has equal distance between points.
 -- First argument gives total length of the interpolation function
 -- and second argument gives list of values. So call
 --
--- > linsegRel dur [a1, a2, a3, ..., aN]
+-- > linfunRel dur [a1, a2, a3, ..., aN]
 --
 -- is equivalent to:
 --
--- > linseg [a1, dur/N, a2, dur/N, a3, ..., dur/N, aN]
-linsegRel :: (Ord t, Fractional t) => t -> [t] -> t -> t
-linsegRel dur xs = linseg $ init $ f =<< xs
+-- > linfun [a1, dur/N, a2, dur/N, a3, ..., dur/N, aN]
+linfunRel :: (Ord t, Fractional t) => t -> [t] -> t -> t
+linfunRel dur xs = linfun $ init $ f =<< xs
     where dt  = dur / (fromIntegral $ length xs)
           f x = [x, dt]
