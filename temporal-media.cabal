@@ -16,6 +16,12 @@ Stability:     Experimental
 Tested-With:   GHC==6.13.1
 Build-Type:    Simple
 
+Homepage:        https://github.com/anton-k/temporal-media
+Bug-Reports:     https://github.com/anton-k/temporal-media/issues
+
+Source-repository head
+    Type: git
+    Location: https://github.com/anton-k/temporal-media
 
 Library
   Build-Depends:
