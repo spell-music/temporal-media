@@ -1,7 +1,6 @@
 {-# Language 
-        BangPatterns #-}
-
-
+        BangPatterns, 
+        DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
 -- | A library for creating lists of constant time events related in time.
 module Temporal.Media(
@@ -43,6 +42,7 @@ module Temporal.Media(
 
 import Data.Monoid
 import Data.Foldable(Foldable(foldMap))
+import Data.Traversable
 
 import Control.Applicative
 
@@ -66,10 +66,7 @@ nil = mempty
 -- (as a result of 'mapEvents' function). Total duration is used in sequent 
 -- composition of tracks. 
 data Track t a = Track t (TList t a)
-    deriving (Show, Eq)
-
-instance Functor (Track t) where
-    fmap f (Track d es) = Track d $ fmap f es
+    deriving (Show, Eq, Functor, Foldable, Traversable)
 
 instance Real t => Monoid (Track t a) where
     mempty = Track 0 mempty
@@ -137,10 +134,6 @@ reflect a = mapEvents
 -- | Empty track that lasts for some time.
 rest :: (Real t) => t -> Track t a
 rest = flip delay nil
-
-
-instance Foldable (Track t) where
-    foldMap f (Track _ x) = foldMap f x        
 
 -- | 'slice' cuts piece of value within given time interval.
 -- for @('slice' t0 t1 m)@, if @t1 < t0@ result is reversed.
@@ -261,7 +254,7 @@ data TList t a =  Empty
                 | Single a
                 | Append  (TList t a) (TList t a)
                 | TFun (Tfm t) (TList t a)
-            deriving (Show, Eq)
+            deriving (Show, Eq, Functor, Foldable, Traversable)
 
 
 foldT :: b -> (a -> b) -> (b -> b -> b) -> (Tfm t -> b -> b) 
@@ -280,11 +273,6 @@ instance Monoid (TList t a) where
     mappend a       Empty   = a
     mappend a       b       = Append a b
 
-
-instance Functor (TList t) where
-    fmap f = foldT Empty (Single . f) Append TFun
-
-
 durTList = maximum . fmap totalEventDur . renderTList 
     where totalEventDur = (+) <$> eventStart <*> eventDur
 
@@ -297,9 +285,6 @@ delayTList k x = case x of
         TFun t a    -> TFun (delayTfm k t) a
         Empty       -> Empty
         a           -> TFun (Tfm 1 k) a 
-
-instance Foldable (TList t) where
-    foldMap f = foldT mempty f mappend (flip const)
 
 
 renderTList :: Num t => TList t a -> [Event t a]
