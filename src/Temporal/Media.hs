@@ -19,8 +19,11 @@ module Temporal.Media(
     -- * Types
     Event(..), Track, dur, within, eventEnd,
     -- * Composition
-    temp, stretch, delay, reflect, (+|), (*|), (=:=), (+:+), (=:/),
-    line, chord, chordT, loop, rest, sustain, sustainT,    
+    temp, event, stretch, delay, reflect, (+|), (*|), (=:=), (+:+), (=:/),
+    line, chord, chordT, loop, rest, sustain, sustainT,
+    -- ** Common patterns
+    lineTemp, chordTemp, 
+    lineMap, chordMap, chordTMap,
     
     -- * Filtering
     slice, takeT, dropT, filterEvents,     
@@ -77,6 +80,14 @@ instance Real t => Monoid (Track t a) where
 dur :: Track t a -> t
 dur (Track d _) = d
 
+-- | Creates a single event.
+--
+-- > event start dur a 
+--
+-- It happens at time @start@ lasts for @dur@ seconds and contains a value @a@.
+event :: Real t => t -> t -> a -> Track t a
+event start dur content = delay start $ stretch dur $ temp content
+
 -- | Stretches track in time domain.
 stretch :: Real t => t -> Track t a -> Track t a
 stretch k (Track d es) = Track (k*d) $ stretchTList k es
@@ -123,6 +134,26 @@ chordT xs = slice 0 (minimum $ dur <$> xs) $ chord xs
 -- tracks are played sequentially.
 loop :: (Real t) => Int -> Track t a -> Track t a
 loop n = line . replicate n
+
+-- | A line of one events. Each of them lasts for one second.
+lineTemp :: (Real t) => [a] -> Track t a
+lineTemp = lineMap temp
+
+-- | Transforms a sequence and then applies a line.
+lineMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+lineMap f xs = line $ fmap f xs
+
+-- | A chord of one events. Each of them lasts for one second.
+chordTemp :: (Real t) => [a] -> Track t a
+chordTemp = chordMap temp
+
+-- | Transforms a sequence and then applies a chord.
+chordMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+chordMap f xs = chord $ fmap f xs
+
+-- | Transforms a sequence and then applies a chordT.
+chordTMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+chordTMap f xs = chordT $ fmap f xs
 
 -- | Reversing the tracks
 reflect :: (Real t) => Track t a -> Track t a
