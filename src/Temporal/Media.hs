@@ -82,11 +82,11 @@ dur (Track d _) = d
 
 -- | Creates a single event.
 --
--- > event start dur a 
+-- > event dur a 
 --
--- It happens at time @start@ lasts for @dur@ seconds and contains a value @a@.
-event :: Real t => t -> t -> a -> Track t a
-event start dur content = delay start $ stretch dur $ temp content
+-- Event lasts for some time and contains a value @a@.
+event :: Real t => t -> a -> Track t a
+event dur content = stretch dur $ temp content
 
 -- | Stretches track in time domain.
 stretch :: Real t => t -> Track t a -> Track t a
