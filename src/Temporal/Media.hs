@@ -19,11 +19,11 @@ module Temporal.Media(
     -- * Types
     Event(..), Track, dur, within, eventEnd,
     -- * Composition
-    temp, event, stretch, delay, reflect, (+|), (*|), (=:=), (+:+), (=:/),
-    line, chord, chordT, loop, rest, sustain, sustainT,
+    temp, str, del, reflect, (+|), (*|), (=:=), (+:+), (=:/),
+    mel, har, harT, loop, rest, sustain, sustainT,
     -- ** Common patterns
-    lineTemp, chordTemp, 
-    lineMap, chordMap, chordTMap,
+    melTemp, harTemp, 
+    melMap, harMap, harTMap,
     
     -- * Filtering
     slice, takeT, dropT, filterEvents,     
@@ -39,8 +39,10 @@ module Temporal.Media(
     nil,
     module Data.Monoid,
     -- * Miscellaneous
-    linfun, linfunRel
+    linfun, linfunRel,
 
+    -- * Deprecated
+    line, chord, delay, stretch
 ) where
 
 import Data.Monoid
@@ -80,29 +82,21 @@ instance Real t => Monoid (Track t a) where
 dur :: Track t a -> t
 dur (Track d _) = d
 
--- | Creates a single event.
---
--- > event dur a 
---
--- Event lasts for some time and contains a value @a@.
-event :: Real t => t -> a -> Track t a
-event dur content = stretch dur $ temp content
-
 -- | Stretches track in time domain.
-stretch :: Real t => t -> Track t a -> Track t a
-stretch k (Track d es) = Track (k*d) $ stretchTList k es
+str :: Real t => t -> Track t a -> Track t a
+str k (Track d es) = Track (k*d) $ stretchTList k es
 
 -- | Delays all events by given duration. 
-delay :: Real t => t -> Track t a -> Track t a
-delay k (Track d es) = Track (k+d) $ delayTList k es
+del :: Real t => t -> Track t a -> Track t a
+del k (Track d es) = Track (k+d) $ delayTList k es
 
--- | Infix 'delay' function.
+-- | Infix 'del' function.
 (+|) :: Real t => t -> Track t a -> Track t a 
-(+|) = delay
+(+|) = del
 
 -- | Infix 'stretch' function.
 (*|) :: Real t => t -> Track t a -> Track t a
-(*|) = stretch
+(*|) = str
 
 -- | Parallel composition. Play two tracks simultaneously.
 (=:=) :: (Real t) => Track t a -> Track t a -> Track t a
@@ -110,7 +104,7 @@ a =:= b = a <> b
 
 -- | Sequent composition. Play first track then second.
 (+:+) :: (Real t) => Track t a -> Track t a -> Track t a
-a +:+ b = a <> delay (dur a) b
+a +:+ b = a <> del (dur a) b
 
 -- | Turncating parallel composition. Total duration
 -- equals to minimum of the two tracks. All events
@@ -118,42 +112,42 @@ a +:+ b = a <> delay (dur a) b
 (=:/) :: (Real t) => Track t a -> Track t a -> Track t a
 a =:/ b = slice 0 (dur a `min` dur b) $ a <> b
 
--- | Parallel composition on list of tracks.
-chord :: (Real t, Ord t) => [Track t a] -> Track t a
-chord = mconcat
+-- | Parallel composition on list of tracks (short for harmony).
+har :: (Real t, Ord t) => [Track t a] -> Track t a
+har = mconcat
 
--- | Sequent composition on list of tracks.
-line :: (Real t) => [Track t a] -> Track t a
-line = foldr (+:+) nil
+-- | Sequent composition on list of tracks (short for melody).
+mel :: (Real t) => [Track t a] -> Track t a
+mel = foldr (+:+) nil
 
 -- | Turncating parallel composition on list of tracks.
-chordT :: (Real t) => [Track t a] -> Track t a
-chordT xs = slice 0 (minimum $ dur <$> xs) $ chord xs
+harT :: (Real t) => [Track t a] -> Track t a
+harT xs = slice 0 (minimum $ dur <$> xs) $ har xs
 
 -- | Analog of 'replicate' function for tracks. Replicated
 -- tracks are played sequentially.
 loop :: (Real t) => Int -> Track t a -> Track t a
-loop n = line . replicate n
+loop n = mel . replicate n
 
--- | A line of one events. Each of them lasts for one second.
-lineTemp :: (Real t) => [a] -> Track t a
-lineTemp = lineMap temp
+-- | A melody of events. Each of them lasts for one second.
+melTemp :: (Real t) => [a] -> Track t a
+melTemp = melMap temp
 
--- | Transforms a sequence and then applies a line.
-lineMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
-lineMap f xs = line $ fmap f xs
+-- | Transforms a sequence and then applies a mel.
+melMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+melMap f xs = mel $ fmap f xs
 
--- | A chord of one events. Each of them lasts for one second.
-chordTemp :: (Real t) => [a] -> Track t a
-chordTemp = chordMap temp
+-- | A chord of events. Each of them lasts for one second.
+harTemp :: (Real t) => [a] -> Track t a
+harTemp = harMap temp
 
--- | Transforms a sequence and then applies a chord.
-chordMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
-chordMap f xs = chord $ fmap f xs
+-- | Transforms a sequence and then applies a har.
+harMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+harMap f xs = har $ fmap f xs
 
--- | Transforms a sequence and then applies a chordT.
-chordTMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
-chordTMap f xs = chordT $ fmap f xs
+-- | Transforms a sequence and then applies a harT.
+harTMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+harTMap f xs = harT $ fmap f xs
 
 -- | Reversing the tracks
 reflect :: (Real t) => Track t a -> Track t a
@@ -164,7 +158,7 @@ reflect a = mapEvents
 
 -- | Empty track that lasts for some time.
 rest :: (Real t) => t -> Track t a
-rest = flip delay nil
+rest = flip del nil
 
 -- | 'slice' cuts piece of value within given time interval.
 -- for @('slice' t0 t1 m)@, if @t1 < t0@ result is reversed.
@@ -177,7 +171,7 @@ slice t0 t1
     | otherwise = reflect . slice' t1 t0
 
 slice' :: (Real t) => t -> t -> Track t a -> Track t a
-slice' t0 t1 = sliceDur . delay (-t0) . filterEvents (within t0 t1)
+slice' t0 t1 = sliceDur . del (-t0) . filterEvents (within t0 t1)
     where sliceDur (Track _ a) = Track (t1 - t0) a
 
 -- | @('takeT' t)@ is equivalent to @('slice' 0 t)@.
@@ -396,3 +390,28 @@ linfunRel :: (Ord t, Fractional t) => t -> [t] -> t -> t
 linfunRel dur xs = linfun $ init $ f =<< xs
     where dt  = dur / (fromIntegral $ length xs)
           f x = [x, dt]
+
+---------------------------------------------------
+-- deprecated 
+
+{-# DEPRECATED line    "Use mel" #-}
+{-# DEPRECATED chord   "Use har" #-}
+{-# DEPRECATED delay   "Use del" #-}
+{-# DEPRECATED stretch "Use str" #-}
+
+-- | Deprecated in favour of @mel@.
+line :: (Real t) => [Track t a] -> Track t a
+line = mel
+
+-- | Deprecated in favour of @har@.
+chord :: (Real t) => [Track t a] -> Track t a
+chord = har
+
+-- | Deprecated in favour of @del@.
+delay :: (Real t) => t -> Track t a -> Track t a
+delay = del
+
+-- | Deprecated in favour of @str@.
+stretch :: (Real t) => t -> Track t a -> Track t a
+stretch = str
+
