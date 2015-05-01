@@ -1,5 +1,6 @@
 {-# Language 
         BangPatterns, 
+        TypeFamilies,
         DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
 -- | A library for creating lists of constant time events related in time.
@@ -17,18 +18,18 @@ module Temporal.Media(
     -- to compose list of events. 
     
     -- * Types
-    Event(..), Track, dur, within, eventEnd,
+    Event(..), Track, within, eventEnd,
     -- * Composition
-    temp, str, del, reflect, (+|), (*|), (=:=), (+:+), (=:/),
-    mel, har, harT, loop, rest, sustain, sustainT,
+    module Temporal.Class,
+    temp, fromEvent, singleEvent, reflect, (=:/),
+    harT, sustain, sustainT,
     -- ** Common patterns
-    melTemp, harTemp, 
-    melMap, harMap, harTMap,
+    melTemp, harTemp, harTMap,
     
     -- * Filtering
     slice, takeT, dropT, filterEvents,     
     -- * Mappings
-    mapEvents, tmap, tmapRel,
+    mapEvents, traverseEvents, tmap, tmapRel,
     -- * Rendering
     render, alignByZero, sortEvents,
     
@@ -39,20 +40,20 @@ module Temporal.Media(
     nil,
     module Data.Monoid,
     -- * Miscellaneous
-    linfun, linfunRel,
-
-    -- * Deprecated
-    line, chord, delay, stretch
+    linfun, linfunRel
 ) where
 
 import Data.Monoid
+import Data.Boolean
 import Data.Foldable(Foldable(foldMap))
 import Data.Traversable
 
-import Control.Applicative
+import Control.Applicative hiding ((<*))
 
 import Data.List(sortBy)
 import Data.Ord(comparing)
+
+import Temporal.Class
 
 -- TODO : optimise loops
 -- reflect ??? 
@@ -73,92 +74,66 @@ nil = mempty
 data Track t a = Track t (TList t a)
     deriving (Show, Eq, Functor, Foldable, Traversable)
 
-instance Real t => Monoid (Track t a) where
+instance (Num t, IfB t, OrdB t) => Monoid (Track t a) where
     mempty = Track 0 mempty
     mappend (Track d es) (Track d' es') = 
-        Track (max d d') $ mappend es es'
+        Track (maxB d d') $ mappend es es'
 
--- | Calculates track's duration.
-dur :: Track t a -> t
-dur (Track d _) = d
+type instance DurOf (Track t a) = t
+
+instance Duration (Track t a) where
+    dur (Track d _) = d
 
 -- | Stretches track in time domain.
-str :: Real t => t -> Track t a -> Track t a
-str k (Track d es) = Track (k*d) $ stretchTList k es
+instance Num t => Stretch (Track t a) where
+    str k (Track d es) = Track (k*d) $ stretchTList k es
 
 -- | Delays all events by given duration. 
-del :: Real t => t -> Track t a -> Track t a
-del k (Track d es) = Track (k+d) $ delayTList k es
-
--- | Infix 'del' function.
-(+|) :: Real t => t -> Track t a -> Track t a 
-(+|) = del
-
--- | Infix 'stretch' function.
-(*|) :: Real t => t -> Track t a -> Track t a
-(*|) = str
-
--- | Parallel composition. Play two tracks simultaneously.
-(=:=) :: (Real t) => Track t a -> Track t a -> Track t a
-a =:= b = a <> b 
-
--- | Sequent composition. Play first track then second.
-(+:+) :: (Real t) => Track t a -> Track t a -> Track t a
-a +:+ b = a <> del (dur a) b
+instance Num t => Delay (Track t a) where
+    del k (Track d es) = Track (k+d) $ delayTList k es
 
 -- | Turncating parallel composition. Total duration
 -- equals to minimum of the two tracks. All events
 -- that goes beyond the lmimt are dropped.
-(=:/) :: (Real t) => Track t a -> Track t a -> Track t a
-a =:/ b = slice 0 (dur a `min` dur b) $ a <> b
+(=:/) :: (Real t, IfB t, OrdB t) => Track t a -> Track t a -> Track t a
+a =:/ b = slice 0 (dur a `minB` dur b) $ a <> b
 
 -- | Parallel composition on list of tracks (short for harmony).
-har :: (Real t, Ord t) => [Track t a] -> Track t a
-har = mconcat
+instance (Num t, IfB t, OrdB t) => Compose (Track t a) where
+    har = mconcat
+    mel = foldr (+:+) nil
 
--- | Sequent composition on list of tracks (short for melody).
-mel :: (Real t) => [Track t a] -> Track t a
-mel = foldr (+:+) nil
+    a =:= b = a <> b
+    a +:+ b = a <> del (dur a) b
 
 -- | Turncating parallel composition on list of tracks.
-harT :: (Real t) => [Track t a] -> Track t a
-harT xs = slice 0 (minimum $ dur <$> xs) $ har xs
+harT :: (Real t, IfB t, OrdB t) => [Track t a] -> Track t a
+harT xs = slice 0 (minimum $ dur <$> xs) $ har xs    
 
 -- | Analog of 'replicate' function for tracks. Replicated
 -- tracks are played sequentially.
-loop :: (Real t) => Int -> Track t a -> Track t a
-loop n = mel . replicate n
 
 -- | A melody of events. Each of them lasts for one second.
-melTemp :: (Real t) => [a] -> Track t a
+melTemp :: (Num t, IfB t, OrdB t) => [a] -> Track t a
 melTemp = melMap temp
 
--- | Transforms a sequence and then applies a mel.
-melMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
-melMap f xs = mel $ fmap f xs
-
 -- | A chord of events. Each of them lasts for one second.
-harTemp :: (Real t) => [a] -> Track t a
+harTemp :: (Num t, IfB t, OrdB t) => [a] -> Track t a
 harTemp = harMap temp
 
--- | Transforms a sequence and then applies a har.
-harMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
-harMap f xs = har $ fmap f xs
-
 -- | Transforms a sequence and then applies a harT.
-harTMap :: (Real t) => (a -> Track t b) -> [a] -> Track t b
+harTMap :: (Real t, IfB t, OrdB t) => (a -> Track t b) -> [a] -> Track t b
 harTMap f xs = harT $ fmap f xs
 
 -- | Reversing the tracks
-reflect :: (Real t) => Track t a -> Track t a
+reflect :: (Num t, IfB t, OrdB t) => Track t a -> Track t a
 reflect a = mapEvents 
     (\e -> e{ eventStart = d - (eventStart e + eventDur e) }) a
     where d = dur a
 
-
 -- | Empty track that lasts for some time.
-rest :: (Real t) => t -> Track t a
-rest = flip del nil
+instance (Num t, IfB t, OrdB t) => Rest (Track t a) where
+    rest = flip del nil
 
 -- | 'slice' cuts piece of value within given time interval.
 -- for @('slice' t0 t1 m)@, if @t1 < t0@ result is reversed.
@@ -166,9 +141,7 @@ rest = flip del nil
 -- nothing inserted so that duration of result equals to 
 -- @'abs' (t0 - t1)@.
 slice :: (Real t) => t -> t -> Track t a -> Track t a
-slice t0 t1 
-    | t0 < t1   = slice' t0 t1
-    | otherwise = reflect . slice' t1 t0
+slice t0 t1 = (slice' t0 t1)
 
 slice' :: (Real t) => t -> t -> Track t a -> Track t a
 slice' t0 t1 = sliceDur . del (-t0) . filterEvents (within t0 t1)
@@ -184,11 +157,21 @@ dropT t0 a = slice t0 (dur a) a
 
 -- | 'temp' constructs just an event. 
 -- Value of type a lasts for one time unit and starts at zero.
-temp :: (Real t) => a -> Track t a
+temp :: (Num t) => a -> Track t a
 temp = Track 1 . Single
 
+-- | Constructs a track that contains a single event.
+fromEvent :: Num t => Event t a -> Track t a
+fromEvent (Event start duration content) = singleEvent start duration content
+
+-- | Constructs a track that contains a single event.
+--
+-- > singleEvent start duration content
+singleEvent :: Num t => t -> t -> a -> Track t a
+singleEvent start duration content = del start $ str duration $ temp content
+
 -- | Get all events on recordered on the track. 
-render :: Real t => Track t a -> [Event t a]
+render :: (Num t) => Track t a -> [Event t a]
 render (Track d es) = renderTList es
 
 -----------------------------------------------
@@ -220,15 +203,17 @@ within t0 t1 e = within' t0 t1 (eventStart e) && within' t0 t1 (eventEnd e)
     where within' a b x = x >= a && x <= b
 
 -- | General mapping. Mapps not only values but events. 
-mapEvents :: Real t => (Event t a -> Event t b) -> Track t a -> Track t b 
+mapEvents :: Num t => (Event t a -> Event t b) -> Track t a -> Track t b 
 mapEvents = onEvents . fmap
+
+traverseEvents :: (Num t1, Applicative f) => (t1 -> f t2) -> (Event t1 a -> f (Event t2 b)) -> Track t1 a -> f (Track t2 b)
+traverseEvents df f t = Track <$> (df $ dur t) <*> (fmap fromEventList $ traverse f $ render t)
 
 -- | Filter track. 
 filterEvents :: Real t => (Event t a -> Bool) -> Track t a -> Track t a
 filterEvents = onEvents . filter
 
-
-onEvents :: Real t => ([Event t a] -> [Event t b]) -> Track t a -> Track t b
+onEvents :: Num t => ([Event t a] -> [Event t b]) -> Track t a -> Track t b
 onEvents phi t@(Track d es) = Track d $ fromEventList $ phi $ render t
 
 
@@ -390,28 +375,4 @@ linfunRel :: (Ord t, Fractional t) => t -> [t] -> t -> t
 linfunRel dur xs = linfun $ init $ f =<< xs
     where dt  = dur / (fromIntegral $ length xs)
           f x = [x, dt]
-
----------------------------------------------------
--- deprecated 
-
-{-# DEPRECATED line    "Use mel" #-}
-{-# DEPRECATED chord   "Use har" #-}
-{-# DEPRECATED delay   "Use del" #-}
-{-# DEPRECATED stretch "Use str" #-}
-
--- | Deprecated in favour of @mel@.
-line :: (Real t) => [Track t a] -> Track t a
-line = mel
-
--- | Deprecated in favour of @har@.
-chord :: (Real t) => [Track t a] -> Track t a
-chord = har
-
--- | Deprecated in favour of @del@.
-delay :: (Real t) => t -> Track t a -> Track t a
-delay = del
-
--- | Deprecated in favour of @str@.
-stretch :: (Real t) => t -> Track t a -> Track t a
-stretch = str
 

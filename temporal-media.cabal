@@ -25,8 +25,9 @@ Source-repository head
 
 Library
   Build-Depends:
-        base >= 4, base < 5
+        base >= 4, base < 5, Boolean >= 0.2.3
   Hs-Source-Dirs:      src/
 
   Exposed-Modules:
         Temporal.Media
+        Temporal.Class
