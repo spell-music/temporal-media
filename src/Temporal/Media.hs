@@ -98,13 +98,15 @@ instance Num t => Delay (Track t a) where
 (=:/) :: (Real t, IfB t, OrdB t) => Track t a -> Track t a -> Track t a
 a =:/ b = slice 0 (dur a `minB` dur b) $ a <> b
 
--- | Parallel composition on list of tracks (short for harmony).
-instance (Num t, IfB t, OrdB t) => Compose (Track t a) where
-    har = mconcat
+instance (Num t, IfB t, OrdB t) => Melody (Track t a) where
     mel = foldr (+:+) nil
-
-    a =:= b = a <> b
     a +:+ b = a <> del (dur a) b
+
+instance (Num t, IfB t, OrdB t) => Harmony (Track t a) where
+    har = mconcat
+    a =:= b = a <> b   
+
+instance (Num t, IfB t, OrdB t) => Compose (Track t a) where 
 
 -- | Turncating parallel composition on list of tracks.
 harT :: (Real t, IfB t, OrdB t) => [Track t a] -> Track t a
