@@ -230,14 +230,14 @@ tmapRel f x = tmap (f . stretchEvent (1 / dur x)) x
 
 -- | After this transformation events last longer
 -- by some constant amount of time.
-sustain :: Real t => t -> Track t a -> Track t a
+sustain :: Num t => t -> Track t a -> Track t a
 sustain a = mapEvents $ \e -> e{ eventDur = a + eventDur e }
 
 -- | Prolongated events can not exceed total track duration.
 -- All event are sustained but those that are close to 
 -- end of the track are sliceped. It resembles sustain on piano,
 -- when track ends you release the pedal.
-sustainT :: (Real t) => t -> Track t a -> Track t a
+sustainT :: (Ord t, Num t) => t -> Track t a -> Track t a
 sustainT a x = mapEvents (\e -> turncate $ e{ eventDur = a + eventDur e }) x
     where turncate e
             | eventEnd e > d    = e{ eventDur = max 0 $ d - eventStart e }
