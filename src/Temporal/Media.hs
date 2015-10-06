@@ -204,7 +204,7 @@ within :: (Real t) => t -> t -> Event t a -> Bool
 within t0 t1 e = within' t0 t1 (eventStart e) && within' t0 t1 (eventEnd e)
     where within' a b x = x >= a && x <= b
 
--- | General mapping. Mapps not only values but events. 
+-- | General mapping. Maps not only values but events. 
 mapEvents :: Num t => (Event t a -> Event t b) -> Track t a -> Track t b 
 mapEvents = onEvents . fmap
 
@@ -219,7 +219,7 @@ onEvents :: Num t => ([Event t a] -> [Event t b]) -> Track t a -> Track t b
 onEvents phi t@(Track d es) = Track d $ fromEventList $ phi $ render t
 
 
--- | Mapps values and time stamps.
+-- | Maps values and time stamps.
 tmap :: Real t => (Event t a -> b) -> Track t a -> Track t b
 tmap f = mapEvents $ \e -> e{ eventContent = f e }
 
