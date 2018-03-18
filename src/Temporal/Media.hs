@@ -94,7 +94,7 @@ instance Num t => Delay (Track t a) where
 
 -- | Turncating parallel composition. Total duration
 -- equals to minimum of the two tracks. All events
--- that goes beyond the lmimt are dropped.
+-- that goes beyond the limit are dropped.
 (=:/) :: (Real t, IfB t, OrdB t) => Track t a -> Track t a -> Track t a
 a =:/ b = slice 0 (dur a `minB` dur b) $ a <> b
 
@@ -235,11 +235,11 @@ sustain a = mapEvents $ \e -> e{ eventDur = a + eventDur e }
 
 -- | Prolongated events can not exceed total track duration.
 -- All event are sustained but those that are close to 
--- end of the track are sliceped. It resembles sustain on piano,
+-- end of the track are sliced. It resembles sustain on piano,
 -- when track ends you release the pedal.
 sustainT :: (Ord t, Num t) => t -> Track t a -> Track t a
-sustainT a x = mapEvents (\e -> turncate $ e{ eventDur = a + eventDur e }) x
-    where turncate e
+sustainT a x = mapEvents (\e -> truncate $ e{ eventDur = a + eventDur e }) x
+    where truncate e
             | eventEnd e > d    = e{ eventDur = max 0 $ d - eventStart e }
             | otherwise         = e
           d = dur x
