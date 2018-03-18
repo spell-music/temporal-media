@@ -22,6 +22,7 @@ class Melody a where
 
    a +:+ b = mel [a, b]
    mel = foldl1 (+:+)
+   {-# MINIMAL mel | (+:+) #-}
 
 class Harmony a where
    -- | Parallel composition for a list of values (harmony).
@@ -32,6 +33,7 @@ class Harmony a where
 
    a =:= b = har [a, b]
    har = foldl1 (=:=)
+   {-# MINIMAL har | (=:=) #-}
 
 
 class (Melody a, Harmony a) => Compose a where
