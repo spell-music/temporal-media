@@ -1,15 +1,15 @@
 Name:          temporal-media
-Version:       0.6.1
+Version:       0.6.2
 License-file:  LICENSE
 Cabal-Version: >= 1.6
 License:       BSD3
 Author:	       Anton Kholomiov
 Maintainer:    <anton.kholomiov@gmail.com>
 Synopsis:      data types for temporal media
-Description:  
-      An embedded domain-specific language (EDSL) for 
+Description:
+      An embedded domain-specific language (EDSL) for
       creating lists of constant time events related in time.
-      
+
 
 Category:      Media, Music
 Stability:     Experimental
